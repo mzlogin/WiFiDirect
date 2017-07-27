@@ -4,13 +4,21 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.NetworkInfo;
+import android.net.wifi.WpsInfo;
+import android.net.wifi.p2p.WifiP2pConfig;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pDeviceList;
+import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.Collection;
 
@@ -22,6 +30,8 @@ public class MainActivity extends AppCompatActivity {
     private WifiP2pManager.Channel mChannel;
     private WifiDirectBroadcastReceiver mReceiver;
     private WifiPeerListAdapter mAdapter;
+
+    private TextView mStatusTv;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,6 +47,18 @@ public class MainActivity extends AppCompatActivity {
         ListView peersList = (ListView) findViewById(R.id.peers_list);
         mAdapter = new WifiPeerListAdapter();
         peersList.setAdapter(mAdapter);
+        peersList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> adapterView, View view, int position, long id) {
+                connect(position);
+            }
+        });
+
+        mStatusTv = (TextView) findViewById(R.id.status);
+    }
+
+    private void changeStatus(String status) {
+        mStatusTv.setText(status);
     }
 
     @Override
@@ -86,6 +108,45 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void connect(int position) {
+        WifiP2pDevice device = (WifiP2pDevice) mAdapter.getItem(position);
+        WifiP2pConfig config = new WifiP2pConfig();
+        config.deviceAddress = device.deviceAddress;
+        config.wps.setup = WpsInfo.PBC;
+
+        mManager.connect(mChannel, config, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+
+            }
+
+            @Override
+            public void onFailure(int i) {
+                Toast.makeText(MainActivity.this, "Connect failed.", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private WifiP2pManager.ConnectionInfoListener mConnectionInfoListener =
+            new WifiP2pManager.ConnectionInfoListener() {
+                @Override
+                public void onConnectionInfoAvailable(WifiP2pInfo info) {
+                    // InetAddress groupOwnerAddress = info.groupOwnerAddress;
+
+                    if (info.groupFormed && info.isGroupOwner) {
+                        // Do whatever tasks are specific to the group owner.
+                        // One common case is creating a group owner thread and accepting
+                        // incoming connections.
+                        changeStatus("已作为 group owner 连接");
+                    } else if (info.groupFormed) {
+                        // The other device acts as the peer (client). In this case,
+                        // you'll want to create a peer thread that connects
+                        // to the group owner.
+                        changeStatus("已作为 client 连接");
+                    }
+                }
+            };
+
     private class WifiDirectBroadcastReceiver extends BroadcastReceiver {
 
         @Override
@@ -104,8 +165,16 @@ public class MainActivity extends AppCompatActivity {
                 }
                 Log.d(MainActivity.TAG, "P2P peers changed");
             } else if (WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION.equals(action)) {
-                // Connection state changed!  We should probably do something about
-                // that.
+                if (mManager == null) {
+                    return;
+                }
+                NetworkInfo networkInfo = intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO);
+                if (networkInfo.isConnected()) {
+                    mManager.requestConnectionInfo(mChannel, mConnectionInfoListener);
+                    changeStatus("已连接");
+                } else {
+                    changeStatus("已断开");
+                }
             } else if (WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION.equals(action)) {
 
             }
